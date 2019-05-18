@@ -212,6 +212,9 @@ private:
 	std::mutex* outputMutex;
 	bool passthrough;
 	
+	const double baseNote = 27.5;
+	const double halfStepConstant = 1.05946309536;
+	
 	void SineWave(FrameData& fData) // frequency to output
 	{
 		std::vector<std::pair<int, float>> frequencies = FastFourierTransform(fData);
@@ -225,7 +228,6 @@ private:
 			{				
 				float frequencyFactor = frequency.first * (2 * pi / sampleRate);
 				amplitude += (int16_t)(std::sin(i * frequencyFactor) * frequency.second / 1000);
-				//std::cout << frequency.second / 500 << " + ";
 			}
 			
 			posZero[i] = amplitude;
@@ -237,6 +239,9 @@ private:
 		return std::sqrt((a * a) + (b * b));
 	}
 	
+	// L1 and L2 average lmao hehexd
+	// Everything <= a D5 you can't hear when we bucketize
+	// all A notes have no stutter/clicks
 	std::vector<std::pair<int, float>> FastFourierTransform(FrameData& fData)
 	{
 		//std::cout << fData.frameCount << " " << fData.byteCount << " " << fData.data << std::endl;
@@ -252,24 +257,61 @@ private:
 		
 		auto cmp = [](std::pair<int, float> ichi, std::pair<int, float> ni) { return ichi.second > ni.second; };
 		std::priority_queue<std::pair<int, float>, std::vector<std::pair<int, float>>, decltype(cmp)> qq(cmp);
+		
+		int currentBucket = 0;
+		double bucketAmplitude = 0;
+		int elementsInBucket = 0;
 		for (int i = 0; i < maxFFTReadSize / 2; i++)
 		{
-			float currentBoi = PythagoreanTheorem((fftInfo->out)[i].re, (fftInfo->out)[i].im);
-			std::pair<int, float> currentPair =  std::make_pair((sampleRate * i) / maxFFTReadSize, currentBoi);
-			qq.push(currentPair);
+			float currentAmplitude = PythagoreanTheorem((fftInfo->out)[i].re, (fftInfo->out)[i].im);
+			int currentFrequency = (sampleRate * i) / maxFFTReadSize, currentBoi;
 			
-			if (qq.size() > peakCount)
-				qq.pop();
+			if (currentFrequency >= 4186)
+				break;
+				
+			double distance = NumberOfHalfStepsFromANaturalZero(currentFrequency);
+			
+			if (distance >= currentBucket - 0.5 && distance <= currentBucket + 0.5)
+			{
+				bucketAmplitude += currentAmplitude;
+				elementsInBucket++;
+			}
+			else
+			{
+				int finalAmplitude = bucketAmplitude / elementsInBucket;
+				//if (currentFrequency <= 133)
+				//	finalAmplitude *= 10;
+				int finalFrequency = baseNote * std::pow(halfStepConstant, currentBucket);
+				std::pair<int, float> currentPair = 
+					std::make_pair(finalFrequency, finalAmplitude);
+				qq.push(currentPair);
+			
+				if (qq.size() > peakCount)
+					qq.pop();
+				
+				// std::cout << "Bucket Finalized: " << currentPair.first << "Hz, Amplitude:" << currentPair.second << std::endl;
+				
+				bucketAmplitude = 0;
+				elementsInBucket = 0;
+				currentBucket++;
+			}
+			// std::cout << currentBucket << ", " << elementsInBucket << ", " << bucketAmplitude << std::endl;
 		}
 		
 		std::vector<std::pair<int, float>> data;
 		for (int i = 0; i < peakCount; i++)
 		{				
 			//std::cout << qq.top().first << ", " << qq.top().second << " | ";
-			data.push_back(qq.top()); qq.pop();  
+			data.push_back(qq.top());
+			qq.pop();
 		}
 		//std::cout << std::endl;
 		return data;
+	}
+	
+	double NumberOfHalfStepsFromANaturalZero(double oldFrequency)
+	{
+		return (std::log(oldFrequency / baseNote)) / (std::log(halfStepConstant));
 	}
 };
 
