@@ -18,7 +18,7 @@ const int fftSize = 12;
 const int maxFFTReadSize = 4096;
 const int sampleRate = 48000;
 const float pi = 3.14159265358979323846;
-int peakCount = 1;
+int peakCount = 5;
 
 
 // In order to end process, enter sudo kill (the process ID (PID) in the command "top") 
@@ -57,6 +57,7 @@ class FrameData
 	}
 };
 
+
 class PulseCodeModulationBoi
 {
 	public:
@@ -81,7 +82,7 @@ class PulseCodeModulationBoi
 		unsigned int frames_per_sec = pcm_get_rate(pcm);		
 		int read_time = frames_per_sec / 10; // Read 10 milliseconds
 		
-		FrameData returnedFData(                                            ``                              b        b read_time, 
+		FrameData returnedFData(read_time, 
 			frame_size * read_time);
 			
 		int read_count = 
@@ -132,15 +133,20 @@ class PulseCodeModulationBoi
 	}
 };
 
+// Class to perform audio processing in between the input and output queues
 class SFX
 {
 public:
 
+	// Turn pass through on or off
+	// (output directly from input queue or perform FFT/SineWave first)
 	bool setPassthrough(bool enable)
 	{
 		passthrough = enable;
 	}
 
+	// Constructor
+	// Pass in reference to input data queue, output data queue, and their respective object locks
 	SFX(std::queue<FrameData>* inputQQ, std::queue<FrameData>* outputQQ,
 	 std::mutex* inputMucinex, std::mutex* outputMucinex)
 	{
@@ -152,31 +158,14 @@ public:
 		gpu_fft_prepare(mailbox, fftSize, GPU_FFT_FWD, 1, &fftInfo);
 		
 	}
+	
+	// Destructor
 	~SFX()
 	{
 		gpu_fft_release(fftInfo);
 	}
 	
-	//void GainThatGrain(FrameData& fData, double grainToGain)
-	//{
-	//	int16_t* posZero = (int16_t*)fData.data;
-	//	for (int i = 0; i < fData.frameCount; i++)
-	//	{
-	//		posZero[i] = posZero[i] * grainToGain;
-	//	}
-	//}
-	
-	//void ConcoctiveOctavesUpOneLmao(FrameData& fData)
-	//{
-	//	int16_t* posZero = (int16_t*)fData.data;
-	//	for (int i = 0; i < fData.frameCount / 2; i++)
-	//	{
-	//		posZero[i] = posZero[i * 2];
-	//	}
-	//	fData.byteCount = fData.byteCount / 2;
-	//	fData.frameCount = fData.frameCount / 2;
-	//}
-	
+	// Begin FFTransforming data from the data queue
 	void BeginTransform()
 	{
 		while (true)
@@ -214,13 +203,15 @@ private:
 	int64_t phaseShift = 0;
 	float prevSineX;
 	
+	const int hertzModulationMultiple = 2;
 	const double baseNote = 27.5;
 	const double halfStepConstant = 1.05946309536;
 	
+	// Output added sine waves
+	// based on samples in the form of FrameData
 	void SineWave(FrameData& fData) // frequency to output
 	{
 		std::vector<std::pair<float, float>> frequencies = FastFourierTransform(fData);
-		
 		
 		int16_t* posZero = (int16_t*)fData.data;
 		for (int i = 0; i < sampleRate / 10; i++)
@@ -229,8 +220,8 @@ private:
 			for(std::pair<float, float> frequency:frequencies) // <Frequency, Amplitude>
 			{				
 				float frequencyFactor = frequency.first * (2 * pi / sampleRate);
-				prevSineX = std::sin((i + phaseShift) * frequencyFactor;
-				amplitude += (int16_t)(prevSineX) * frequency.second / 1000);
+				prevSineX = std::sin((i + phaseShift) * frequencyFactor);
+				amplitude += (int16_t)(prevSineX) * (frequency.second / 1000);
 			}
 			
 			posZero[i] = amplitude;
@@ -238,17 +229,17 @@ private:
 		phaseShift += sampleRate / 10;
 	}
 	
+	// Perform the pythaogorean theorem given A and B
 	float PythagoreanTheorem(float a, float b)
 	{
 		return std::sqrt((a * a) + (b * b));
 	}
 	
-	// L1 and L2 average lmao hehexd
-	// Everything <= a D5 you can't hear when we bucketize
-	// all A notes have no stutter/clicks
+	// Perform a fast fourier transform on a sample of audio 
+	// and return a vector containing a pair of <frequency, amplitude> 
+	// representing the FFTransformed data
 	std::vector<std::pair<float, float>> FastFourierTransform(FrameData& fData)
 	{
-		//std::cout << fData.frameCount << " " << fData.byteCount << " " << fData.data << std::endl;
 		
 		for (int i = 0; i < maxFFTReadSize; i++)
 		{
@@ -265,7 +256,6 @@ private:
 		double bucketAmplitude = 0;
 		int elementsInBucket = 0;
 		int previousBucket = 0;
-		//std::cout << "Expected number of iterations: " << maxFFTReadSize / 2 << std::endl;
 		for (int i = 0; i < maxFFTReadSize / 2; i++)
 		{
 			float currentAmplitude = PythagoreanTheorem((fftInfo->out)[i].re, (fftInfo->out)[i].im);
@@ -274,22 +264,15 @@ private:
 			if (currentFrequency >= 4186)
 				break;
 			
-			// bucket number would be distance rounded to an integer
-			
 			double distance = NumberOfHalfStepsFromANaturalZero(currentFrequency);
 			
 			int currentBucket = std::round(distance);
 			
-			//std::cout << "iterations: " << i << ", " << currentBucket << ", " << elementsInBucket << ", " << bucketAmplitude << std::endl;
-			
-			// are we done with the bucket? If so, finalize it (and start a new bucket)
-			// regardless of what happened above, add current sample to current bucket.
+			std::cout << "iterations: " << i << ", " << currentBucket << ", " << elementsInBucket << ", " << bucketAmplitude << std:endl; 
 			
 			if (previousBucket != currentBucket)
 			{
 				int finalAmplitude = bucketAmplitude / elementsInBucket;
-				//if (currentFrequency <= 133)
-				//	finalAmplitude *= 10;
 				float finalFrequency = baseNote * std::pow(halfStepConstant, previousBucket);
 				std::pair<float, float> currentPair = 
 					std::make_pair(finalFrequency, finalAmplitude);
@@ -297,8 +280,6 @@ private:
 			
 				if (qq.size() > peakCount)
 					qq.pop();
-				
-				//std::cout << "Bucket #" << currentBucket << " Finalized: " << currentPair.first << "Hz, Amplitude:" << currentPair.second << std::endl;
 				
 				bucketAmplitude = 0;
 				elementsInBucket = 0;
@@ -311,17 +292,18 @@ private:
 		
 		std::vector<std::pair<float, float>> data;
 		for (int i = 0; i < peakCount; i++)
-		{				
-			//std::cout << qq.top().first << ", " << qq.top().second << " | ";
+		{	
 			data.push_back(qq.top());
 			qq.pop();
 		}
-		//std::cout << std::endl;
+		
+		std::cout << std::endl;
+		
 		return data;
 	}
 	
-	
-	
+	// Calculate the number of half steps from A natural 0 in the western music scale
+	// based on a frequency
 	double NumberOfHalfStepsFromANaturalZero(double oldFrequency)
 	{
 		return (std::log(oldFrequency / baseNote)) / (std::log(halfStepConstant));
@@ -331,15 +313,23 @@ private:
 class Input
 {
 	public:
+	
+	// Constructor
+	// Pass in a reference to the data queue and the object lock
 	Input(std::queue<FrameData>* qq, std::mutex* bm)
 	{
 		buffer = qq;
 		buffer_mutex = bm;
 	}
+	
+	// Begin reading infinitely
 	void BeginRead()
 	{
 		ReadLimited(-1);
 	}
+	
+	// Read a number of samples 
+	// -1 represents infinite reading
 	void ReadLimited(int iterations)
 	{
 		PulseCodeModulationBoi pcmBoi(0, 1, PCM_IN);
@@ -358,15 +348,20 @@ class Input
 	std::mutex* buffer_mutex;
 };
 
+// The output class that we use threaded
 class Output
 {
 	public:
+	
+	// Constructor
+	// pass in pointer to the data queue and a thread lock
     Output(std::queue<FrameData>* qq, std::mutex* bm)
 	{
 		buffer = qq;
 		buffer_mutex = bm;
 	}
 	
+	// Begin writing from the data queue
 	void BeginWrite()
 	{
 		PulseCodeModulationBoi pcmBoi(0, 0, PCM_OUT);
@@ -411,6 +406,7 @@ int main(int argc, char **argv)
 	
 	char choice;
 	
+	// The user menu
 	while (true)
 	{
 		system("clear");
