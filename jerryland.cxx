@@ -18,7 +18,8 @@ const int fftSize = 12;
 const int maxFFTReadSize = 4096;
 const int sampleRate = 48000;
 const float pi = 3.14159265358979323846;
-int peakCount = 5;
+int peakCount = 1;
+int globalHertzModulation = 2; 
 
 
 // In order to end process, enter sudo kill (the process ID (PID) in the command "top") 
@@ -207,11 +208,24 @@ private:
 	const double baseNote = 27.5;
 	const double halfStepConstant = 1.05946309536;
 	
+	void Modulate(std::vector<std::pair<float, float>>& dataReference)
+	{
+		//for(std::pair<float, float> frequency:(*dataReference)) // <Frequency, Amplitude>
+		//{				
+		//	frequency.first *= hertzModulationMultiple;
+		//}
+	}
+	
 	// Output added sine waves
 	// based on samples in the form of FrameData
 	void SineWave(FrameData& fData) // frequency to output
 	{
 		std::vector<std::pair<float, float>> frequencies = FastFourierTransform(fData);
+		
+		//for(std::pair<float, float> frequency:frequencies) // <Frequency, Amplitude>
+		{				
+		//	frequency.first *= hertzModulationMultiple;
+		}
 		
 		int16_t* posZero = (int16_t*)fData.data;
 		for (int i = 0; i < sampleRate / 10; i++)
@@ -219,9 +233,9 @@ private:
 			int16_t amplitude = 0;
 			for(std::pair<float, float> frequency:frequencies) // <Frequency, Amplitude>
 			{				
-				float frequencyFactor = frequency.first * (2 * pi / sampleRate);
+				float frequencyFactor = globalHertzModulation * frequency.first * (2 * pi / sampleRate);
 				prevSineX = std::sin((i + phaseShift) * frequencyFactor);
-				amplitude += (int16_t)(prevSineX) * (frequency.second / 1000);
+				amplitude += (int16_t)(prevSineX * frequency.second / 1000);
 			}
 			
 			posZero[i] = amplitude;
@@ -268,7 +282,7 @@ private:
 			
 			int currentBucket = std::round(distance);
 			
-			std::cout << "iterations: " << i << ", " << currentBucket << ", " << elementsInBucket << ", " << bucketAmplitude << std:endl; 
+			
 			
 			if (previousBucket != currentBucket)
 			{
@@ -296,8 +310,6 @@ private:
 			data.push_back(qq.top());
 			qq.pop();
 		}
-		
-		std::cout << std::endl;
 		
 		return data;
 	}
@@ -412,7 +424,8 @@ int main(int argc, char **argv)
 		system("clear");
 		
 		std::cout << "(E)nable FFT" << std::endl << "(D)isable FFT" << 
-		std::endl << "(S)ine wave count (currently " << peakCount << ")" 
+		std::endl << "(S)ine wave count (currently " << peakCount << ")" <<
+		std::endl << "Change the (M)odulation multiplier (currently " << globalHertzModulation << ") " 
 		<< std::endl << "(Q)uit" << std::endl;
 		
 		std::cin >> choice;
@@ -432,6 +445,10 @@ int main(int argc, char **argv)
 				std::cout << "Enter the number of sine waves to add: ";
 				std::cin >> peakCount;
 				break;
+			case 'M':
+			case 'm':
+				std::cout << "Enter the modulation multiple: ";
+				std::cin >> globalHertzModulation;
 			case 'Q':
 			case 'q':
 				return 0;
