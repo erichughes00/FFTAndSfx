@@ -1,6 +1,6 @@
 # FFTAndSfx
 Miku Miku you can call me Miku
-https://www.youtube.com/watch?v=NocXEwsJGOQ
+[Hatsune Miku](https://www.youtube.com/watch?v=NocXEwsJGOQ)
 
 Source code found in jerryland.cxx (don't ask about the name thanks)
 
