@@ -81,7 +81,7 @@ class PulseCodeModulationBoi
 		unsigned int frames_per_sec = pcm_get_rate(pcm);		
 		int read_time = frames_per_sec / 10; // Read 10 milliseconds
 		
-		FrameData returnedFData(                                            ``                              b        b read_time, 
+		FrameData returnedFData(read_time, 
 			frame_size * read_time);
 			
 		int read_count = 
@@ -229,8 +229,8 @@ private:
 			for(std::pair<float, float> frequency:frequencies) // <Frequency, Amplitude>
 			{				
 				float frequencyFactor = frequency.first * (2 * pi / sampleRate);
-				prevSineX = std::sin((i + phaseShift) * frequencyFactor;
-				amplitude += (int16_t)(prevSineX) * frequency.second / 1000);
+				prevSineX = std::sin((i + phaseShift) * frequencyFactor);
+				amplitude += (int16_t)(prevSineX * frequency.second / 1000);
 			}
 			
 			posZero[i] = amplitude;
