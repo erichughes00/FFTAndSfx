@@ -22,7 +22,9 @@ int peakCount = 1;
 int globalHertzModulation = 2; 
 
 
-// In order to end process, enter sudo kill (the process ID (PID) in the command "top") 
+// Note: In order to end process incase the process doesn't end, enter sudo kill (the process ID (PID) in the command "top") 
+
+// The class that holds all data about frames
 class FrameData
 {
 	public:
@@ -36,7 +38,7 @@ class FrameData
 		this->frameCount = frameCount;
 		this->byteCount = byteCount;
 		if (data == NULL) {
-			fprintf(stderr, "failed to allocate frames read lol\n");
+			fprintf(stderr, "failed to allocate frames: read\n");
 		}
 	}
 	
@@ -77,6 +79,7 @@ class PulseCodeModulationBoi
 		return pcm_writei(pcm, fData.data, fData.frameCount);
 	}
 	
+	// Reads wh
 	FrameData ReadingRainbow()
 	{
 		unsigned int frame_size = pcm_frames_to_bytes(pcm, 1);
@@ -87,7 +90,7 @@ class PulseCodeModulationBoi
 			frame_size * read_time);
 			
 		int read_count = 
-			pcm_readi(pcm, returnedFData.data, read_time);
+			pcm_readi(pcm, f.data, read_time);
 			
 		size_t byte_count = pcm_frames_to_bytes(pcm, read_count);
 		
@@ -98,6 +101,7 @@ class PulseCodeModulationBoi
 	}
 	
 	private:
+	// setting up the PCM
 	struct pcm* pcm;
 	void Open(int device, int card, int flags)
 	{
@@ -166,7 +170,7 @@ public:
 		gpu_fft_release(fftInfo);
 	}
 	
-	// Begin FFTransforming data from the data queue
+	// Begin FF-Transforming data from the data queue
 	void BeginTransform()
 	{
 		while (true)
@@ -240,6 +244,7 @@ private:
 			
 			posZero[i] = amplitude;
 		}
+		// increment the Phaseshift variable to reduce clicking.
 		phaseShift += sampleRate / 10;
 	}
 	
@@ -262,28 +267,34 @@ private:
 			complexBoi.im = (float)0;
 			(fftInfo->in)[i] = complexBoi;
 		}
+		// Preform the FFT and put data int fftInfo
 		gpu_fft_execute(fftInfo);
 		
+		// we use a priority queue to order the freuqencies by amplitude, we only care about the loudest frequencies
 		auto cmp = [](std::pair<float, float> ichi, std::pair<float, float> ni) { return ichi.second > ni.second; };
 		std::priority_queue<std::pair<float, float>, std::vector<std::pair<float, float>>, decltype(cmp)> qq(cmp);
 		
+		// Initialize variables
 		double bucketAmplitude = 0;
 		int elementsInBucket = 0;
 		int previousBucket = 0;
 		for (int i = 0; i < maxFFTReadSize / 2; i++)
 		{
+			// The pathagoreanTheorem gives us the amplitude of given fft data.
 			float currentAmplitude = PythagoreanTheorem((fftInfo->out)[i].re, (fftInfo->out)[i].im);
 			float currentFrequency = (sampleRate * i) / maxFFTReadSize, currentBoi;
 			
+			// We don't care about extreamly high frequencies, so just end the loop at this point
 			if (currentFrequency >= 4186)
 				break;
 			
 			double distance = NumberOfHalfStepsFromANaturalZero(currentFrequency);
 			
+			// THe current bucket we are puting data into is the same as the distance from A0,
+			// i.e. A0 is bucket 0, A#0 is bucket 2 B0 is bucket 3 etc...
 			int currentBucket = std::round(distance);
 			
-			
-			
+			// Once we get data from a new bucket, finalize the previous bucket and start the new one
 			if (previousBucket != currentBucket)
 			{
 				int finalAmplitude = bucketAmplitude / elementsInBucket;
@@ -299,11 +310,13 @@ private:
 				elementsInBucket = 0;
 				previousBucket = currentBucket;
 			}
+			// Increment the amplitude and the number of elements in the current bucket.
 			bucketAmplitude += currentAmplitude;
 			elementsInBucket++;
-
 		}
 		
+		// put all the data from the FFT into a vector of requested size in order to return
+		// We used a priority queue to order our data, so returning only the data we want is easy.
 		std::vector<std::pair<float, float>> data;
 		for (int i = 0; i < peakCount; i++)
 		{	
@@ -322,6 +335,7 @@ private:
 	}
 };
 
+// The input class to be threaded
 class Input
 {
 	public:
@@ -340,7 +354,7 @@ class Input
 		ReadLimited(-1);
 	}
 	
-	// Read a number of samples 
+	// Read a number of samples and put them into the buffer
 	// -1 represents infinite reading
 	void ReadLimited(int iterations)
 	{
@@ -400,8 +414,10 @@ class Output
 
 int main(int argc, char **argv)
 {
+	// A dellay to reduce chopy playback
 	const int bufferDelay = 2;
 	
+	// start all the threads to take input and play output
 	std::mutex outputBuffer_mutex;
 	std::mutex inputBuffer_mutex;
 	std::queue<FrameData> inputBuffer;
